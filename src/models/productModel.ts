@@ -33,12 +33,11 @@ const productSchems: Schema<IProduct> = new Schema({
     },
     description: {
         type: String,
-        required: true,
     },
     status : {
         type: String,
         enum: ['active', 'inactive'],
-        default: 'active', // <-- Change this to 'active'
+        default: 'active',
         required: true,
     }
 

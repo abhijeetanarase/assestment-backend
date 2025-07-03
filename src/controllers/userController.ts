@@ -20,6 +20,8 @@ import User from "../models/userModel";
 import cloudinary from "../configs/cloudinary";
 import { paginateAndSearch } from "../utils/paginateAndSearch";
 import Product from "../models/productModel";
+import { getCache, setCache } from '../utils/cache';
+import redis from '../configs/redis';
 
 
 interface UserData {
@@ -77,6 +79,13 @@ export const registerUser = async (req: Request, res: Response) => {
     const link = `${req.protocol}://${req.get("host")}/api/user/verify-email?token=${token}`;
 
     sendEmail(user.email, link);
+    // invalidate users cache
+    const keys = await redis.keys('users:*');
+    if (keys.length > 0) {
+      await redis.del(...keys);
+    }
+    // invalidate stats cache
+    await redis.del('stats:dashboard');
   } catch (error) {
     console.error("Error registering user:", error);
     return res.status(500).json({ message: "Internal server error" });
@@ -247,6 +256,14 @@ export const verifyEmail = async (req: Request, res: Response) => {
       return res.send(verificationsucess);
     }
 
+    // invalidate users cache
+    const keys = await redis.keys('users:*');
+    if (keys.length > 0) {
+      await redis.del(...keys);
+    }
+    // invalidate stats cache
+    await redis.del('stats:dashboard');
+
   } catch (error) {
     console.error('Email verification failed:', error instanceof Error ? error.message : 'Unknown error');
 
@@ -383,6 +400,13 @@ interface AuthenticatedRequest extends Request {
    if(email) user.email = email;
     
     await user.save();
+    // invalidate users cache
+    const keys = await redis.keys('users:*');
+    if (keys.length > 0) {
+      await redis.del(...keys);
+    }
+    // invalidate stats cache
+    await redis.del('stats:dashboard');
     res.status(200).json(user);
   } catch (error) {
     console.log(error);
@@ -391,6 +415,11 @@ interface AuthenticatedRequest extends Request {
 
 export const getUsers = async (req: Request, res: Response) => {
   try {
+    const cacheKey = `users:${JSON.stringify(req.query)}`;
+    const cached = await getCache<any>(cacheKey);
+    if (cached) {
+      return res.status(200).json(cached);
+    }
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 10;
     const search = (req.query.search as string) || "";
@@ -412,11 +441,12 @@ export const getUsers = async (req: Request, res: Response) => {
       filter,
       sort: { [sortField]: sortOrder },
     });
-
-    res.status(200).json({
+    const response = {
       success: true,
       ...result,
-    });
+    };
+    await setCache(cacheKey, response, 600);
+    return res.status(200).json(response);
   } catch (error) {
     console.error("Error fetching users:", error);
     res.status(500).json({ success: false, message: "Internal server error" });
@@ -425,6 +455,11 @@ export const getUsers = async (req: Request, res: Response) => {
 
 export const getStats = async (req: Request, res: Response) => {
   try {
+    const cacheKey = 'stats:dashboard';
+    const cached = await getCache<any>(cacheKey);
+    if (cached) {
+      return res.status(200).json(cached);
+    }
     // Products से जुड़ी सारी गिनती एक aggregate कॉल में
     const productStats = await Product.aggregate([
       {
@@ -458,6 +493,18 @@ export const getStats = async (req: Request, res: Response) => {
         inactiveProducts
       }
     });
+    // cache set करें
+    await setCache(cacheKey, {
+      success: true,
+      stats: {
+        products,
+        categories,
+        users,
+        outOfStock,
+        activeProducts,
+        inactiveProducts
+      }
+    }, 600);
   } catch (error) {
     console.error("Error fetching stats:", error);
     res.status(500).json({ success: false, message: "Internal server error" });

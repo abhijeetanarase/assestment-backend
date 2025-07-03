@@ -2,13 +2,15 @@ import { Request, Response } from "express";
 import Product from "../models/productModel";
 import cloudinary from "../configs/cloudinary";
 import { parseFileBuffer } from "../utils/parseFile";
+import { getCache, setCache } from '../utils/cache';
+import redis from "../configs/redis";
 
 
 
 
 export const addProduct = async(req: Request, res: Response) => {
     const { name, description, price, category, stock, status } = req.body;
-    const file = req.file; // Multer should provide this
+    const file = req.file;
 
     if (!name || !description || !price || !category) {
         return res.status(400).json({ message: "All fields are required" });
@@ -18,7 +20,7 @@ export const addProduct = async(req: Request, res: Response) => {
         let imageUrl = "";
 
         if (file && file.buffer) {
-            // Upload file buffer to Cloudinary using upload_stream
+          
             imageUrl = await new Promise<string>((resolve, reject) => {
                 const stream = cloudinary.uploader.upload_stream(
                     { folder: "products" },
@@ -30,12 +32,11 @@ export const addProduct = async(req: Request, res: Response) => {
                         }
                     }
                 );
-                // Pipe the buffer to the stream
+
                 stream.end(file.buffer);
             });
         }
 
-        // Now you can use imageUrl in your product creation
         const product = new Product({
             name,
             description,
@@ -43,10 +44,18 @@ export const addProduct = async(req: Request, res: Response) => {
             category,
             imageUrl,
             stock,
-            status // add status here
+            status 
         });
 
         await product.save();
+        
+        const keys = await redis.keys('products:*');
+        if (keys.length > 0) {
+          await redis.del(...keys);
+        }
+        // invalidate stats cache
+        await redis.del('stats:dashboard');
+       
         return res.status(201).json({ message: "Product added successfully", product });
     } catch (error) {
         console.error("Error adding product:", error);
@@ -58,7 +67,13 @@ export const addProduct = async(req: Request, res: Response) => {
 
  export const getCategories = async (req: Request, res: Response) => {
     try {
+        const cacheKey = 'products:categories';
+        const cached = await getCache<any>(cacheKey);
+        if (cached) {
+            return res.status(200).json({ categories: cached });
+        }
         const categories = await Product.distinct("category");
+        await setCache(cacheKey, categories, 600);
         return res.status(200).json({ categories });
     } catch (error) {
         console.error("Error fetching categories:", error);
@@ -72,6 +87,12 @@ export const addProduct = async(req: Request, res: Response) => {
 
 export const getProducts = async (req: Request, res: Response) => {
   try {
+    // Cache key बनाएं (query params के आधार पर)
+    const cacheKey = `products:${JSON.stringify(req.query)}:role=${(req as any).role || ''}`;
+    const cached = await getCache<any>(cacheKey);
+    if (cached) {
+      return res.status(200).json(cached);
+    }
     const {
       priceMin,
       priceMax,
@@ -205,12 +226,15 @@ export const getProducts = async (req: Request, res: Response) => {
     const total = totalCountResult[0]?.total || 0;
     const totalPages = Math.ceil(total / pageLimit);
 
-    return res.status(200).json({
+    const response = {
       total,
       totalPages,
       currentPage: pageNumber,
-      products, // <-- status should be present in each product object
-    });
+      products,
+    };
+    // Cache set करें
+    await setCache(cacheKey, response, 600);
+    return res.status(200).json(response);
   } catch (error) {
     console.error("Error fetching products:", error);
     return res.status(500).json({ message: "Server Error" });
@@ -238,20 +262,13 @@ export const getSingleProduct = async (req: Request, res: Response) => {
 export const bulkUploadProducts = async (req: Request, res: Response) => {
   try {
     const file = req.file;
-
-
-    
-
     if (!file) {
       return res.status(400).json({ message: 'No file uploaded' });
     }
-
     const parsedData = await parseFileBuffer(file);
-
     if (!Array.isArray(parsedData) || parsedData.length === 0) {
       return res.status(400).json({ message: 'File is empty or invalid format' });
     }
-
     // Map and sanitize data
     const validProducts = parsedData.map(p => ({
       name: p.name,
@@ -262,15 +279,25 @@ export const bulkUploadProducts = async (req: Request, res: Response) => {
       description: p.description,
       status: p.status || 'inactive', // add status with default
     }));
-
     const inserted = await Product.insertMany(validProducts);
-
+    // invalidate products cache
+    const keys = await redis.keys('products:*');
+    if (keys.length > 0) {
+      await redis.del(...keys);
+    }
+    // Invalidate categories cache
+    const catKeys = await redis.keys('categories:*');
+    if (catKeys.length > 0) {
+      await redis.del(...catKeys);
+    }
+    await redis.del('product:categories');
+    // invalidate stats cache
+    await redis.del('stats:dashboard');
     return res.status(200).json({
       message: 'Bulk upload successful',
       insertedCount: inserted.length,
       data: inserted,
     });
-
   } catch (error) {
     console.error('Bulk upload error:', error);
     return res.status(500).json({ message: 'Upload failed', error });
@@ -286,11 +313,19 @@ export const updateStatus = async (req: Request, res: Response) => {
         return res.status(404).json({ message: 'Product not found' });
     }
    
-    if (product.status === 'inactive' && (!product.imageUrl || product.imageUrl === '')) {
-        return res.status(400).json({ message: 'Cannot activate product without image' });
-    }
+    // if (product.status === 'inactive' && (!product.imageUrl || product.imageUrl === '')) {
+    //     return res.status(400).json({ message: 'Cannot activate product without image' });
+    // }
     product.status = product.status === 'active' ? 'inactive' : 'active';
     await product.save();
+ 
+    const keys = await redis.keys('products:*');
+    if (keys.length > 0) {
+      await redis.del(...keys);
+    }
+   
+    await redis.del('stats:dashboard');
+   
     return res.status(200).json({ message: 'Product status updated', product });
 }
 
@@ -302,6 +337,14 @@ export const deleteProduct = async (req: Request, res: Response) => {
         if (!product) {
             return res.status(404).json({ message: 'Product not found' });
         }
+        // invalidate products cache
+        const keys = await redis.keys('products:*');
+        if (keys.length > 0) {
+          await redis.del(...keys);
+        }
+        // invalidate stats cache
+        await redis.del('stats:dashboard');
+       
         return res.status(200).json({ message: 'Product deleted successfully' });
     } catch (error) {
         console.error("Error deleting product:", error);
@@ -334,6 +377,14 @@ export const updateProduct = async (req: Request, res: Response) => {
         if (!product) {
             return res.status(404).json({ message: 'Product not found' });
         }
+        // invalidate products cache
+        const keys = await redis.keys('products:*');
+        if (keys.length > 0) {
+          await redis.del(...keys);
+        }
+        // invalidate stats cache
+        await redis.del('stats:dashboard');
+       
         return res.status(200).json({ message: 'Product updated successfully', product });
     } catch (error) {
         console.error("Error updating product:", error);
