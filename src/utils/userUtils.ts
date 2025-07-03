@@ -61,7 +61,7 @@ export const sendEmail = async (email: string, link: string): Promise<void> => {
   });
 
   const mailOptions = {
-    from: `"QuickPing" <${process.env.EMAIL_USER}>`,
+    from: `"Elevate Shop" <${process.env.EMAIL_USER}>`,
     to: email,
     subject: "Verify Your Email Address",
      html: `
@@ -120,7 +120,7 @@ export const sendPasswordResetEmail = async (email: string, resetLink: string): 
   });
 
   const mailOptions = {
-    from: `"QuickPing" <${process.env.EMAIL_USER}>`,
+    from: `"Elevate Shop" <${process.env.EMAIL_USER}>`,
     to: email,
     subject: "Password Reset Request",
      html: `
@@ -170,5 +170,41 @@ export const sendPasswordResetEmail = async (email: string, resetLink: string): 
   } catch (error) {
     console.error("❌ Failed to send password reset email:", error);
     throw new AppError("Failed to send password reset email", 500);
+  }
+};
+
+export const sendInvitationEmail = async (email: string, name: string, tempPassword: string): Promise<void> => {
+  const transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+      user: process.env.EMAIL_USER,
+      pass: process.env.EMAIL_APP_PASSWORD,
+    },
+  });
+
+  const mailOptions = {
+    from: `"Elevate Shop" <${process.env.EMAIL_USER}>`,
+    to: email,
+    subject: "You're Invited! Your Temporary Password",
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; border: 1px solid #e0e0e0; border-radius: 8px; padding: 20px; background: #f9f9f9; color: #333;">
+        <h2 style="color: #1a73e8; text-align: center;">Welcome, ${name}!</h2>
+        <p style="font-size: 16px; line-height: 1.5;">You have been invited to join our platform. Here is your temporary password:</p>
+        <div style="text-align: center; margin: 30px 0;">
+          <span style="background-color: #1a73e8; color: white; padding: 10px 20px; border-radius: 6px; font-size: 18px; letter-spacing: 2px;">${tempPassword}</span>
+        </div>
+        <p style="font-size: 14px; color: #666; line-height: 1.4;">Please login and change your password after first login.</p>
+        <hr style="border: none; border-top: 1px solid #ddd; margin: 40px 0;">
+        <p style="font-size: 12px; color: #999; text-align: center;">If you did not expect this invitation, you can ignore this email.</p>
+      </div>
+    `,
+  };
+
+  try {
+    const info = await transporter.sendMail(mailOptions);
+    console.log("✅ Invitation email sent:", info.response);
+  } catch (error) {
+    console.error("❌ Failed to send invitation email:", error);
+    throw new AppError("Failed to send invitation email", 500);
   }
 };

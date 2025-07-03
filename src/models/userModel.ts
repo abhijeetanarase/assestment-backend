@@ -1,16 +1,19 @@
+import e from "express";
 import mongoose, { Schema, Document } from "mongoose";
 
 
 export interface IUser extends Document {
-    name: string,
-    email: string,
-    password: string,
-    slug: string,
-    verified : boolean,
-    picture : String
+    name: string;
+    email: string;
+    password: string;
+    slug: string;
+    verified : boolean;
+    picture : String;
+    role : string;
+    isSuperAdmin: boolean;
 }
 
-const UserSchema: Schema = new Schema({
+const UserSchema: Schema<IUser> = new Schema({
     name: {
         type: String,
         required: true,
@@ -33,6 +36,15 @@ const UserSchema: Schema = new Schema({
     },
     picture : {
         type : String
+    },
+    role : {
+        type : String,
+        default : "user",
+        enum : ["user", "admin"]
+    },
+    isSuperAdmin: {
+        type: Boolean,
+        default: false,
     }
 
 }, { timestamps: true })

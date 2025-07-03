@@ -1,5 +1,4 @@
 import { FilterQuery, Model } from "mongoose";
-import { getCache, setCache } from "../utils/cache"; // adjust path if needed
 
 interface PaginateOptions {
   page?: number;
@@ -39,17 +38,6 @@ export const paginateAndSearch = async <T>(
 
   const skip = (page - 1) * limit;
 
-  // Generate cache key
-  const cacheKey = `${model.modelName}:page=${page}:limit=${limit}:search=${search}:searchFields=${searchFields.join(",")}:filter=${JSON.stringify(
-    filter
-  )}:sort=${JSON.stringify(sort)}`;
-
-  // Try getting from cache
-  const cached = await getCache<PaginatedResult<T>>(cacheKey);
-  if (cached) {
-    return cached ;
-  }
-
   // DB Query
   const [data, total] = await Promise.all([
     model.find(query).sort(sort).skip(skip).limit(limit),
@@ -62,9 +50,6 @@ export const paginateAndSearch = async <T>(
     page,
     pages: Math.ceil(total / limit),
   };
-
-  // Set cache
-  await setCache(cacheKey, result, 600); // cache for 10 minutes
 
   return result;
 };

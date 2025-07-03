@@ -7,6 +7,7 @@ import {
   isValidEmail,
   sendEmail,
   sendPasswordResetEmail,
+  sendInvitationEmail,
 } from "../utils/userUtils";
 import axios from "axios";
 import jwt from "jsonwebtoken";
@@ -16,6 +17,9 @@ import linkexpiration from "../templates/linkexpiration";
 import tokennotfound from "../templates/tokennotfound";
 import usernotfound from "../templates/usernotfound";
 import User from "../models/userModel";
+import cloudinary from "../configs/cloudinary";
+import { paginateAndSearch } from "../utils/paginateAndSearch";
+import Product from "../models/productModel";
 
 
 interface UserData {
@@ -111,7 +115,7 @@ export const loginUser = async (req: Request, res: Response) => {
       return res.status(403).json({ message: "Please continue with google login" });
     }
 
-    const token = generateToken(user);
+    const token = generateToken(user , '1d', { role: user.role || "user" });
     return res.status(200).json({
       message: "Login successful",
       success: true,
@@ -119,6 +123,8 @@ export const loginUser = async (req: Request, res: Response) => {
         id: user._id,
         name: user.name,
         email: user.email,
+        picture: user.picture || "",
+        role : user.role || "user",
       },
       token,
     });
@@ -184,7 +190,7 @@ export const googleAuthCallback = async (req: Request, res: Response) => {
     );
 
     const jwtToken = jwt.sign(
-      { id: user._id, email: user.email, name: user.name },
+      { id: user._id, role: user.role },
       process.env.JWT_SECRET as string,
       { expiresIn: "1d" }
     );
@@ -195,7 +201,7 @@ export const googleAuthCallback = async (req: Request, res: Response) => {
         user.email
       )}&name=${encodeURIComponent(user.name)}&picture=${encodeURIComponent(
        JSON.stringify( user.picture) || ''
-      )}&id=${encodeURIComponent(user.id)}`
+      )}&id=${encodeURIComponent(user.id)}&role=${encodeURIComponent(user.role || 'user')}`
     );
   } catch (err) {
     console.error("OAuth Error:", err instanceof Error ? err.message : 'Unknown error');
@@ -323,3 +329,164 @@ export const resetPassword = async (req: Request, res: Response) => {
     return res.status(500).json({ message: "Internal server error." });
   }
 };
+
+
+interface AuthenticatedRequest extends Request {
+  userId: string;
+}
+
+ export const userProfile = async(req:AuthenticatedRequest, res:Response)=>{
+   const id = req.userId;
+   try {
+    const user = await User.findById(id);
+   res.status(200).json(user);
+    } catch (error) {
+    console.log(error);  
+   }
+}
+
+
+ export const updateUser = async(req:AuthenticatedRequest, res:Response)=>{
+  const id = req.userId;
+  const {name, email } = req.body;
+  const file = req.file;
+  
+  try {
+    const user = await User.findById(id);
+    if (!user) {
+        return res.status(400).json({ message: "User not found" });
+    }
+    let picture ="";
+     if (file && file.buffer) {
+                // Upload file buffer to Cloudinary using upload_stream
+                picture = await new Promise<string>((resolve, reject) => {
+                    const stream = cloudinary.uploader.upload_stream(
+                        { folder: "products" },
+                        (error, result) => {
+                            if (error || !result) {
+                                reject(error || new Error("Cloudinary upload failed"));
+                            } else {
+                                resolve(result.secure_url);
+                            }
+                        }
+                    );
+                    // Pipe the buffer to the stream
+                    stream.end(file.buffer);
+                });
+            }
+   if (picture) user.picture = picture;
+   if(name) user.name = name;
+   if(email) user.email = email;
+    
+    await user.save();
+    res.status(200).json(user);
+  } catch (error) {
+    console.log(error);
+  }
+}
+
+export const getUsers = async (req: Request, res: Response) => {
+  try {
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 10;
+    const search = (req.query.search as string) || "";
+    const sortField = (req.query.sortField as string) || "createdAt";
+    const sortOrder = req.query.sortOrder === "asc" ? 1 : -1;
+
+    // आप चाहें तो filter भी req.query से ले सकते हैं
+    const filter: Record<string, any> = {};
+    // उदाहरण के लिए, role पर filter
+    if (req.query.role) {
+      filter.role = req.query.role;
+    }
+
+    const result = await paginateAndSearch(User, {
+      page,
+      limit,
+      search,
+      searchFields: ["name", "email"],
+      filter,
+      sort: { [sortField]: sortOrder },
+    });
+
+    res.status(200).json({
+      success: true,
+      ...result,
+    });
+  } catch (error) {
+    console.error("Error fetching users:", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+export const getStats = async (req: Request, res: Response) => {
+  try {
+    // Products से जुड़ी सारी गिनती एक aggregate कॉल में
+    const productStats = await Product.aggregate([
+      {
+        $facet: {
+          products: [{ $count: "count" }],
+          outOfStock: [{ $match: { stock: { $lte: 0 } } }, { $count: "count" }],
+          activeProducts: [{ $match: { status: "active" } }, { $count: "count" }],
+          inactiveProducts: [{ $match: { status: "inactive" } }, { $count: "count" }],
+          categories: [ { $group: { _id: "$category" } }, { $count: "count" } ]
+        }
+      }
+    ]);
+
+    const statsObj = productStats[0];
+    const products = statsObj.products[0]?.count || 0;
+    const outOfStock = statsObj.outOfStock[0]?.count || 0;
+    const activeProducts = statsObj.activeProducts[0]?.count || 0;
+    const inactiveProducts = statsObj.inactiveProducts[0]?.count || 0;
+    const categories = statsObj.categories[0]?.count || 0;
+
+    const users = await User.countDocuments();
+
+    res.status(200).json({
+      success: true,
+      stats: {
+        products,
+        categories,
+        users,
+        outOfStock,
+        activeProducts,
+        inactiveProducts
+      }
+    });
+  } catch (error) {
+    console.error("Error fetching stats:", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+export const userInvitation = async (req: Request, res: Response) => {
+  try {
+    const { email, name } = req.body;
+    if (!email || !name) {
+      return res.status(400).json({ success: false, message: "Name and email are required" });
+    }
+    // Check if user already exists
+    let user = await User.findOne({ email });
+    if (user) {
+      return res.status(400).json({ success: false, message: "User already exists" });
+    }
+    // Generate 8-character temporary password
+    const tempPassword = Math.random().toString(36).slice(-8);
+    const hashedPassword = await encodePassword(tempPassword);
+    // Create user
+    user = new User({ name, email, password: hashedPassword, verified: false });
+    await user.save();
+    // Send invitation email (sendInvitationEmail का उपयोग)
+    await sendInvitationEmail(email, name, tempPassword);
+    return res.status(201).json({ success: true, message: "Invitation sent successfully" });
+  } catch (error) {
+    console.error("Error inviting user:", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+
+
+
+
