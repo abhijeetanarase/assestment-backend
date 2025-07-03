@@ -277,7 +277,7 @@ export const bulkUploadProducts = async (req: Request, res: Response) => {
       stock: Number(p.stock),
       imageUrl: p.imageUrl || '',
       description: p.description,
-      status: p.status || 'inactive', // add status with default
+      status: p.status || "active"
     }));
     const inserted = await Product.insertMany(validProducts);
     // invalidate products cache
