@@ -113,7 +113,7 @@ export const getProducts = async (req: Request, res: Response) => {
 
     const matchStage: any = {};
   
-    // अगर यूजर का रोल 'user' है तो सिर्फ active products दिखाएं और status query को इग्नोर करें
+   
     if ((req as any).role === 'user') {
       matchStage.status = 'active';
     } else {
@@ -299,7 +299,7 @@ export const bulkUploadProducts = async (req: Request, res: Response) => {
       );
     }
 
-    // Step 2: नए products insert करें
+   
     const inserted = await Product.insertMany(validProducts);
     // invalidate products cache
     const keys = await redis.keys('products:*');

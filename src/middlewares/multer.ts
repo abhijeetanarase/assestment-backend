@@ -1,4 +1,3 @@
-import { log } from 'console';
 import multer from 'multer';
 
 // Store file in memory (buffer)
@@ -12,7 +11,6 @@ const upload = multer({
       'image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'text/csv'
     ];
     if (allowedMimeTypes.includes(file.mimetype)) {
-        console.log('File type is valid:', file.mimetype);
       cb(null, true);
     } else {
       cb(new Error('Invalid file type'));
