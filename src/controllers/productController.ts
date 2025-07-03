@@ -279,6 +279,27 @@ export const bulkUploadProducts = async (req: Request, res: Response) => {
       description: p.description,
       status: p.status || "active"
     }));
+
+    
+    const bulkNamesCategories = validProducts.map(p => ({
+      name: String(p.name).toLowerCase().trim(),
+      category: String(p.category).toLowerCase().trim()
+    }));
+    console.log(bulkNamesCategories);
+    
+    if (bulkNamesCategories.length > 0) {
+      await Product.updateMany(
+        {
+          $or: bulkNamesCategories.map(p => ({
+            name: { $regex: `^${p.name}$`, $options: 'i' },
+            category: { $regex: `^${p.category}$`, $options: 'i' }
+          }))
+        },
+        { $set: { status: "inactive" } }
+      );
+    }
+
+    // Step 2: नए products insert करें
     const inserted = await Product.insertMany(validProducts);
     // invalidate products cache
     const keys = await redis.keys('products:*');
