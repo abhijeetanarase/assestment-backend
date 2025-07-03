@@ -96,7 +96,7 @@ export const getProducts = async (req: Request, res: Response) => {
     if ((req as any).role === 'user') {
       matchStage.status = 'active';
     } else {
-      // Status filter (सिर्फ non-user roles के लिए)
+    
       if (status) {
         matchStage.status = status;
       }
@@ -169,8 +169,21 @@ export const getProducts = async (req: Request, res: Response) => {
               branches: [
                 { case: { $eq: ["$stock", 0] }, then: "OutOfStock" },
                 { case: { $lte: ["$stock", 10] }, then: "Low" },
-                { case: { $lte: ["$stock", 20] }, then: "Medium" },
+                { 
+                  case: { 
+                    $and: [
+                      { $gt: ["$stock", 10] },
+                      { $lte: ["$stock", 20] }
+                    ] 
+                  }, 
+                  then: "Medium" 
+                },
+                { 
+                  case: { $gt: ["$stock", 20] }, 
+                  then: "High" 
+                }
               ],
+              
               default: "High",
             },
           },

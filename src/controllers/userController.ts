@@ -104,7 +104,10 @@ export const loginUser = async (req: Request, res: Response) => {
     if (user.password) {
       const isPasswordValid = await decodePassword(password, user.password);
       if (!user.verified) {
-        return res.status(400).json({ message: "User not verified", success: false });
+        const token = generateToken(user, '10m', { purpose: "email-verification" });
+        const link = `${req.protocol}://${req.get("host")}/api/user/verify-email?token=${token}`;
+        await sendEmail(user.email, link);
+        return res.status(400).json({ message: "User not verified. Verification link sent to your email.", success: false });
       }
       if (!isPasswordValid) {
         return res
@@ -115,6 +118,7 @@ export const loginUser = async (req: Request, res: Response) => {
       return res.status(403).json({ message: "Please continue with google login" });
     }
 
+    
     const token = generateToken(user , '1d', { role: user.role || "user" });
     return res.status(200).json({
       message: "Login successful",
@@ -475,7 +479,7 @@ export const userInvitation = async (req: Request, res: Response) => {
     const tempPassword = Math.random().toString(36).slice(-8);
     const hashedPassword = await encodePassword(tempPassword);
     // Create user
-    user = new User({ name, email, password: hashedPassword, verified: false });
+    user = new User({ name, email, password: hashedPassword, verified: false , role :"admin"});
     await user.save();
     // Send invitation email (sendInvitationEmail का उपयोग)
     await sendInvitationEmail(email, name, tempPassword);

@@ -66,7 +66,7 @@ export const sendEmail = async (email: string, link: string): Promise<void> => {
     subject: "Verify Your Email Address",
      html: `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; border: 1px solid #e0e0e0; border-radius: 8px; padding: 20px; background: #f9f9f9; color: #333;">
-        <h2 style="color: #1a73e8; text-align: center;">Welcome to QuickPing!</h2>
+        <h2 style="color: #1a73e8; text-align: center;">Welcome to Elevate Shop!</h2>
         <p style="font-size: 16px; line-height: 1.5;">
           Thanks for registering with us. Please verify your email address by clicking the button below:
         </p>

@@ -4,6 +4,7 @@ import { connectDb } from './configs/connectDB';
 import authRoutes from './routes/userRoutes';
 import productRoutes from './routes/productRoutes'
 import cors from 'cors';
+import { initiateSuperAdmin } from './utils/initiate';
 dotenv.config()
 
 
@@ -26,7 +27,7 @@ app.get("/" , (req , res)=>{
 
   app.use('/api/user', authRoutes);
   app.use('/api/product',productRoutes);
-
+  initiateSuperAdmin();
 
 
 
