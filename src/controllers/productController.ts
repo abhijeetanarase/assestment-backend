@@ -87,7 +87,6 @@ export const addProduct = async(req: Request, res: Response) => {
 
 export const getProducts = async (req: Request, res: Response) => {
   try {
-    // Cache key बनाएं (query params के आधार पर)
     const cacheKey = `products:${JSON.stringify(req.query)}:role=${(req as any).role || ''}`;
     const cached = await getCache<any>(cacheKey);
     if (cached) {
