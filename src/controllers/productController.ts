@@ -92,6 +92,7 @@ export const getProducts = async (req: Request, res: Response) => {
     if (cached) {
       return res.status(200).json(cached);
     }
+
     const {
       priceMin,
       priceMax,
@@ -103,23 +104,20 @@ export const getProducts = async (req: Request, res: Response) => {
       highStock,
       medStock,
       search,
-      sortBy = "createdAt", 
-      order = "desc",       
+      sortBy = "createdAt",
+      order = "desc",
       page = 1,
       limit = 10,
       status,
     } = req.query;
 
     const matchStage: any = {};
-  
-   
+
+    // Role-based filtering
     if ((req as any).role === 'user') {
       matchStage.status = 'active';
-    } else {
-    
-      if (status) {
-        matchStage.status = status;
-      }
+    } else if (status) {
+      matchStage.status = status;
     }
 
     // Price filter
@@ -129,44 +127,46 @@ export const getProducts = async (req: Request, res: Response) => {
       if (priceMax) matchStage.price.$lte = Number(priceMax);
     }
 
-    // Stock filter
+    // Stock range filter
     if (stockMin || stockMax) {
       matchStage.stock = {};
       if (stockMin) matchStage.stock.$gte = Number(stockMin);
       if (stockMax) matchStage.stock.$lte = Number(stockMax);
     }
 
-    // Derived filters
+    // Derived stock filters (multi-condition support)
+    const stockFilters: any[] = [];
+
     if (lowStock === "true") {
-      matchStage.stock = { ...matchStage.stock, $lte: 10 };
+      stockFilters.push({ stock: { $lte: 10, $gt: 0 } });
     }
 
     if (medStock === "true") {
-      matchStage.stock = { ...matchStage.stock, $lte: 20, $gt: 10 };
-        
+      stockFilters.push({ stock: { $gt: 10, $lte: 20 } });
     }
 
     if (highStock === "true") {
-      matchStage.stock = { ...matchStage.stock, $gt: 20 };
-        
+      stockFilters.push({ stock: { $gt: 20 } });
     }
 
     if (outOfStock === "true") {
-      matchStage.stock = { ...matchStage.stock, $eq: 0 };
+      stockFilters.push({ stock: { $eq: 0 } });
     }
 
-   
+    if (stockFilters.length > 0) {
+      matchStage.$or = [...(matchStage.$or || []), ...stockFilters];
+    }
+
+    // Category filter
     if (category) {
       const categories = Array.isArray(category) ? category : [category];
       matchStage.category = { $in: categories };
     }
 
-  
+    // Search filter
     if (search) {
-      matchStage.$or = [
-        { name: { $regex: search, $options: "i" } },
-        { category: { $regex: search, $options: "i" } }
-      ];
+      const searchRegex = { $regex: search, $options: "i" };
+      matchStage.$or = [...(matchStage.$or || []), { name: searchRegex }, { category: searchRegex }];
     }
 
     // Sorting
@@ -179,7 +179,7 @@ export const getProducts = async (req: Request, res: Response) => {
     const pageLimit = parseInt(limit as string) || 10;
     const skip = (pageNumber - 1) * pageLimit;
 
-
+    // Aggregation pipeline
     const pipeline: any[] = [
       { $match: matchStage },
       {
@@ -189,37 +189,36 @@ export const getProducts = async (req: Request, res: Response) => {
               branches: [
                 { case: { $eq: ["$stock", 0] }, then: "OutOfStock" },
                 { case: { $lte: ["$stock", 10] }, then: "Low" },
-                { 
-                  case: { 
+                {
+                  case: {
                     $and: [
                       { $gt: ["$stock", 10] },
                       { $lte: ["$stock", 20] }
-                    ] 
-                  }, 
-                  then: "Medium" 
+                    ]
+                  },
+                  then: "Medium"
                 },
-                { 
-                  case: { $gt: ["$stock", 20] }, 
-                  then: "High" 
+                {
+                  case: { $gt: ["$stock", 20] },
+                  then: "High"
                 }
               ],
-              
-              default: "High",
-            },
+              default: "High"
+            }
           },
-          isOutOfStock: { $eq: ["$stock", 0] },
-        },
+          isOutOfStock: { $eq: ["$stock", 0] }
+        }
       },
       { $sort: { [sortField]: sortOrder } },
       { $skip: skip },
       { $limit: pageLimit }
     ];
 
-    // Count total for pagination
+    // Total count pipeline
     const totalCountPipeline: any[] = [{ $match: matchStage }, { $count: "total" }];
     const [products, totalCountResult] = await Promise.all([
       Product.aggregate(pipeline),
-      Product.aggregate(totalCountPipeline),
+      Product.aggregate(totalCountPipeline)
     ]);
 
     const total = totalCountResult[0]?.total || 0;
@@ -231,7 +230,7 @@ export const getProducts = async (req: Request, res: Response) => {
       currentPage: pageNumber,
       products,
     };
-    // Cache set करें
+
     await setCache(cacheKey, response, 600);
     return res.status(200).json(response);
   } catch (error) {
@@ -413,3 +412,16 @@ export const updateProduct = async (req: Request, res: Response) => {
 
      
 }
+
+
+// const getProductsNew = async(req :Request , res :Response)=>{
+//   const {status , minStock , maxStock , minPrice , maxPrice , search , lowStock , midStock , highStock  }=req.query;
+//   let matchStage:any  = {};
+//   if (status) matchStage.status = status;
+//   if(minStock || maxStock) matchStage.stock = {$gt : minStock , $lte : maxStock};
+//   if(minPrice || maxPrice) matchStage.price = {$gt : minStock , $lte : maxPrice};
+//   if (search) matchStage.$or = [{name : {$regex : search , $options : "i"}}, {category : {$regex : search,$options : "i"}}];
+//   if(lowStock)
+  
+  
+// }
